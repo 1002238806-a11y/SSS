@@ -3,8 +3,7 @@ import React, { useState } from 'react';
 import { DESTINATIONS, Ride, RideType, User } from '../types';
 import { X, Check, CalendarDays, Edit2, List } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { db } from '../firebaseConfig';
-import { collection, addDoc } from 'firebase/firestore';
+import { supabase } from '../firebaseConfig';
 
 interface AddRideFormProps {
   onClose: () => void;
@@ -41,17 +40,20 @@ const AddRideForm: React.FC<AddRideFormProps> = ({ onClose, currentUser }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.driverName || !formData.phone) return;
-    
+
     setSubmitting(true);
-    
+
     try {
-        // Modular Syntax
-        await addDoc(collection(db, 'rides'), {
+        const { error } = await supabase
+          .from('rides')
+          .insert([{
             ...formData,
-            userId: currentUser.id,
-            user: currentUser, // Storing minimal user data with ride
-            createdAt: new Date().toISOString()
-        });
+            user_id: currentUser.id,
+            driver_name: formData.driverName,
+            created_at: new Date().toISOString()
+          }]);
+
+        if (error) throw error;
         onClose();
     } catch (error) {
         console.error("Error adding ride: ", error);

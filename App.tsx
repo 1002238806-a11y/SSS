@@ -13,10 +13,7 @@ import AlertsModal from './components/AlertsModal';
 import EmailSyncHelp from './components/EmailSyncHelp';
 import { AnimatePresence, motion } from 'framer-motion';
 
-// Firebase Imports (Modular)
-import { db, auth } from './firebaseConfig';
-import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { supabase } from './firebaseConfig';
 
 const App = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -43,44 +40,56 @@ const App = () => {
 
   // 1. Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
         setCurrentUser({
-          id: user.uid,
-          name: user.displayName || 'משתמש',
-          email: user.email || '',
-          imageUrl: user.photoURL || undefined
+          id: session.user.id,
+          name: session.user.user_metadata?.full_name || 'משתמש',
+          email: session.user.email || '',
+          imageUrl: session.user.user_metadata?.avatar_url || undefined
         });
       } else {
         setCurrentUser(null);
       }
     });
-    return () => unsubscribe();
+    return () => subscription?.unsubscribe();
   }, []);
 
-  // 2. Rides Real-time Listener (Firestore)
+  // 2. Rides Real-time Listener (Supabase)
   useEffect(() => {
-    // Modular Syntax
-    const q = query(
-      collection(db, 'rides'),
-      orderBy('date', 'asc'),
-      orderBy('time', 'asc')
-    );
+    const fetchRides = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('rides')
+          .select('*')
+          .order('date', { ascending: true })
+          .order('time', { ascending: true });
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-        const fetchedRides = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as Ride[];
-        
-        setRides(fetchedRides);
-        setLoading(false);
-      }, (error) => {
+        if (error) throw error;
+        setRides((data || []) as Ride[]);
+      } catch (error) {
         console.error("Error fetching rides:", error);
+      } finally {
         setLoading(false);
-      });
+      }
+    };
 
-    return () => unsubscribe();
+    fetchRides();
+
+    const channel = supabase
+      .channel('rides_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'rides' },
+        () => {
+          fetchRides();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   // Update clock
@@ -94,7 +103,13 @@ const App = () => {
   const handleDeleteRide = async (rideId: string) => {
     if (window.confirm("האם אתה בטוח שברצונך למחוק את הנסיעה?")) {
       try {
-        await deleteDoc(doc(db, 'rides', rideId));
+        const { error } = await supabase
+          .from('rides')
+          .delete()
+          .eq('id', rideId)
+          .eq('user_id', currentUser?.id);
+
+        if (error) throw error;
       } catch (e) {
         alert("שגיאה במחיקת הנסיעה. וודא שאתה היוצר של הנסיעה.");
         console.error(e);
@@ -102,8 +117,8 @@ const App = () => {
     }
   };
 
-  const handleLogout = () => {
-    signOut(auth);
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
   };
 
   const transportItems = mergeAndSortTransport(

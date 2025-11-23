@@ -1,18 +1,26 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { auth, googleProvider } from '../firebaseConfig';
-import { signInWithPopup } from 'firebase/auth';
+import { supabase } from '../firebaseConfig';
 
 const Login = () => {
-  
+  const [loading, setLoading] = useState(false);
+
   const handleGoogleLogin = async () => {
     try {
-        await signInWithPopup(auth, googleProvider);
-        // The auth state listener in App.tsx will handle the rest
+      setLoading(true);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin
+        }
+      });
+      if (error) throw error;
     } catch (error) {
         console.error("Login failed:", error);
         alert("ההתחברות נכשלה. אנא נסה שנית.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -32,11 +40,19 @@ const Login = () => {
            כדי לראות ולפרסם נסיעות, עליך להתחבר באמצעות חשבון Google שלך.
         </p>
         
-        <button 
+        <button
           onClick={handleGoogleLogin}
-          className="w-full flex items-center justify-center gap-3 bg-white text-gray-900 font-bold py-3.5 px-6 rounded-xl hover:bg-gray-50 transition-colors shadow-lg shadow-white/10"
+          disabled={loading}
+          className="w-full flex items-center justify-center gap-3 bg-white text-gray-900 font-bold py-3.5 px-6 rounded-xl hover:bg-gray-50 transition-colors shadow-lg shadow-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <span>התחבר עם Google</span>
+          {loading ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-gray-900"></div>
+              <span>מחכה...</span>
+            </>
+          ) : (
+            <span>התחבר עם Google</span>
+          )}
         </button>
         
         <p className="text-[10px] text-gray-500 mt-6">
